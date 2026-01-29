@@ -1,0 +1,25 @@
+{
+    // Настройки для просмотра SQLite баз данных (.db файлов)
+    "files.associations": {
+        "*.db": "sqlite"
+    },
+    
+    // Рекомендуемые расширения для работы с .db файлами
+    // Установите одно из следующих расширений:
+    // - "qwtel.sqlite-viewer" (SQLite Viewer)
+    // - "alexcvzz.vscode-sqlite" (SQLite)
+    // - "mtxr.sqltools-driver-sqlite" (SQLTools + SQLite Driver)
+    
+    // Настройки для SQLite Viewer (если установлен)
+    "sqliteViewer.databasePath": "${workspaceFolder}/cars.db",
+    
+    // Настройки для SQLTools (если установлен)
+    "sqltools.connections": [
+        {
+            "name": "CarSelection DB",
+            "driver": "SQLite",
+            "database": "${workspaceFolder}/cars.db",
+            "previewLimit": 50
+        }
+    ]
+}

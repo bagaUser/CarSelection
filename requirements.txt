@@ -1,0 +1,11 @@
+# GUI библиотека (совместима с Python 3.13+)
+PyQt6==6.7.0
+
+# SQLAlchemy ORM для работы с базой данных (совместима с Python 3.13+)
+SQLAlchemy>=2.0.0
+
+# SQLite встроен в Python, не требует установки!
+
+# Для сборки приложений:
+# PyInstaller (для Windows)
+# cx_Freeze (для macOS)
