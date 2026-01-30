@@ -66,7 +66,7 @@ class CarSelectionApp(QMainWindow):
         self.tree_order_label.setStyleSheet("color: #95a5a6; margin-bottom: 8px;")
         main_layout.addWidget(self.tree_order_label)
         
-        # Фрейм для фильтров
+        # Фрейм для фильтров (порядок = дерево решений: body_type → price → brand → power)
         filters_group = QGroupBox("Критерии поиска")
         filters_group.setFont(QFont("Arial", 12, QFont.Weight.Bold))
         filters_layout = QVBoxLayout()
@@ -223,24 +223,12 @@ class CarSelectionApp(QMainWindow):
         """)
         
     def create_filters(self, layout):
-        """Создание элементов фильтров"""
-        # Марка
-        brand_layout = QHBoxLayout()
-        brand_label = QLabel("Марка:")
-        brand_label.setMinimumWidth(150)
-        brand_label.setFont(QFont("Arial", 11))
-        self.brand_combo = QComboBox()
-        self.brand_combo.setFont(QFont("Arial", 11))
-        self.brand_combo.setEnabled(False)
-        self.brand_check = QCheckBox("Использовать")
-        self.brand_check.setFont(QFont("Arial", 10))
-        self.brand_check.toggled.connect(lambda checked: self.toggle_widget(self.brand_combo, checked))
-        brand_layout.addWidget(brand_label)
-        brand_layout.addWidget(self.brand_combo, 1)
-        brand_layout.addWidget(self.brand_check)
-        layout.addLayout(brand_layout)
-        
-        # Тип кузова
+        """Создание элементов фильтров в порядке дерева решений: тип кузова → цена → марка → мощность."""
+        # --- Шаг 1: Тип кузова (узел body_type) ---
+        step1_label = QLabel("Тип кузова")
+        step1_label.setFont(QFont("Arial", 10, QFont.Weight.Bold))
+        step1_label.setStyleSheet("color: #2980b9; margin-top: 4px;")
+        layout.addWidget(step1_label)
         body_layout = QHBoxLayout()
         body_label = QLabel("Тип кузова:")
         body_label.setMinimumWidth(150)
@@ -256,7 +244,11 @@ class CarSelectionApp(QMainWindow):
         body_layout.addWidget(self.body_type_check)
         layout.addLayout(body_layout)
         
-        # Минимальная цена
+        # --- Шаг 2: Цена (узел price) ---
+        step2_label = QLabel("Цена")
+        step2_label.setFont(QFont("Arial", 10, QFont.Weight.Bold))
+        step2_label.setStyleSheet("color: #2980b9; margin-top: 8px;")
+        layout.addWidget(step2_label)
         min_price_layout = QHBoxLayout()
         min_price_label = QLabel("Мин. цена (руб.):")
         min_price_label.setMinimumWidth(150)
@@ -272,8 +264,6 @@ class CarSelectionApp(QMainWindow):
         min_price_layout.addWidget(self.min_price_edit, 1)
         min_price_layout.addWidget(self.min_price_check)
         layout.addLayout(min_price_layout)
-        
-        # Максимальная цена
         max_price_layout = QHBoxLayout()
         max_price_label = QLabel("Макс. цена (руб.):")
         max_price_label.setMinimumWidth(150)
@@ -290,7 +280,31 @@ class CarSelectionApp(QMainWindow):
         max_price_layout.addWidget(self.max_price_check)
         layout.addLayout(max_price_layout)
         
-        # Минимальная мощность
+        # --- Шаг 3: Марка (узел brand) ---
+        step3_label = QLabel("Марка")
+        step3_label.setFont(QFont("Arial", 10, QFont.Weight.Bold))
+        step3_label.setStyleSheet("color: #2980b9; margin-top: 8px;")
+        layout.addWidget(step3_label)
+        brand_layout = QHBoxLayout()
+        brand_label = QLabel("Марка:")
+        brand_label.setMinimumWidth(150)
+        brand_label.setFont(QFont("Arial", 11))
+        self.brand_combo = QComboBox()
+        self.brand_combo.setFont(QFont("Arial", 11))
+        self.brand_combo.setEnabled(False)
+        self.brand_check = QCheckBox("Использовать")
+        self.brand_check.setFont(QFont("Arial", 10))
+        self.brand_check.toggled.connect(lambda checked: self.toggle_widget(self.brand_combo, checked))
+        brand_layout.addWidget(brand_label)
+        brand_layout.addWidget(self.brand_combo, 1)
+        brand_layout.addWidget(self.brand_check)
+        layout.addLayout(brand_layout)
+        
+        # --- Шаг 4: Мощность (узел power) ---
+        step4_label = QLabel("Мощность")
+        step4_label.setFont(QFont("Arial", 10, QFont.Weight.Bold))
+        step4_label.setStyleSheet("color: #2980b9; margin-top: 8px;")
+        layout.addWidget(step4_label)
         min_power_layout = QHBoxLayout()
         min_power_label = QLabel("Мин. мощность (л.с.):")
         min_power_label.setMinimumWidth(150)
@@ -306,8 +320,6 @@ class CarSelectionApp(QMainWindow):
         min_power_layout.addWidget(self.min_power_edit, 1)
         min_power_layout.addWidget(self.min_power_check)
         layout.addLayout(min_power_layout)
-        
-        # Максимальная мощность
         max_power_layout = QHBoxLayout()
         max_power_label = QLabel("Макс. мощность (л.с.):")
         max_power_label.setMinimumWidth(150)
