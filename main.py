@@ -8,6 +8,7 @@ from PyQt6.QtCore import Qt, QSize
 from PyQt6.QtGui import QFont, QPalette, QColor, QCursor
 from database import Database
 from expert_system import ExpertSystem
+from decision_tree import CarDecisionTree
 
 # SQLite не требует конфигурации подключения
 # База данных будет использовать файл cars.db в той же директории
@@ -19,6 +20,7 @@ class CarSelectionApp(QMainWindow):
         super().__init__()
         self.db = None
         self.system = None
+        self.decision_tree = None  # Дерево решений по фильтрам (через expert_system)
         self.brands = []
         self.body_types = []
         self.current_results = []  # Сохраняем текущие результаты для tooltip
@@ -56,6 +58,13 @@ class CarSelectionApp(QMainWindow):
         instruction_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         instruction_label.setStyleSheet("color: #7f8c8d; margin-bottom: 5px;")
         main_layout.addWidget(instruction_label)
+        
+        # Подсказка о порядке фильтров (дерево решений) — заполняется после init_database
+        self.tree_order_label = QLabel("")
+        self.tree_order_label.setFont(QFont("Arial", 10))
+        self.tree_order_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.tree_order_label.setStyleSheet("color: #95a5a6; margin-bottom: 8px;")
+        main_layout.addWidget(self.tree_order_label)
         
         # Фрейм для фильтров
         filters_group = QGroupBox("Критерии поиска")
@@ -341,6 +350,18 @@ class CarSelectionApp(QMainWindow):
             # SQLite - просто создаем экземпляр, путь к базе определяется автоматически
             self.db = Database()
             self.system = ExpertSystem(self.db)
+            self.decision_tree = self.system.decision_tree
+            
+            # Отображаем порядок фильтров дерева решений
+            _filter_names = {
+                "body_type": "тип кузова",
+                "price": "цена",
+                "brand": "марка",
+                "power": "мощность",
+            }
+            order = self.decision_tree.get_filter_order()
+            order_ru = " → ".join(_filter_names.get(name, name) for name in order)
+            self.tree_order_label.setText(f"Дерево решений: порядок фильтров — {order_ru}")
             
             # Загружаем списки для фильтров
             self.brands = self.db.get_unique_brands()
@@ -446,7 +467,7 @@ class CarSelectionApp(QMainWindow):
                 if criteria['min_power'] > criteria['max_power']:
                     raise ValueError("Минимальная мощность не может быть больше максимальной")
             
-            # Выполняем поиск
+            # Поиск через дерево решений (expert_system использует decision_tree)
             results = self.system.recommend(criteria)
             
             # Сохраняем результаты для tooltip
