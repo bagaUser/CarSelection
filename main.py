@@ -1,36 +1,32 @@
 import sys
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
-                             QHBoxLayout, QLabel, QPushButton, QLineEdit, 
-                             QComboBox, QCheckBox, QGroupBox, QTableWidget, 
-                             QTableWidgetItem, QHeaderView, QMessageBox,
-                             QStatusBar, QScrollArea, QFrame)
-from PyQt6.QtCore import Qt, QSize
-from PyQt6.QtGui import QFont, QPalette, QColor, QCursor
+                             QHBoxLayout, QLabel, QPushButton, QComboBox, 
+                             QGroupBox, QTableWidget, QTableWidgetItem, QHeaderView, 
+                             QMessageBox, QStatusBar)
+from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QFont
 from database import Database
-from expert_system import ExpertSystem
 from decision_tree import CarDecisionTree
 
-# SQLite не требует конфигурации подключения
-# База данных будет использовать файл cars.db в той же директории
+# Логика подбора строится на дереве решений (decision_tree.py): БД → все авто → дерево фильтров → результаты
 
 class CarSelectionApp(QMainWindow):
-    """Графический интерфейс экспертной системы выбора автомобиля на PyQt6"""
+    """Подбор автомобиля по дереву решений (PyQt6). Логика от decision_tree.py."""
     
     def __init__(self):
         super().__init__()
         self.db = None
-        self.system = None
-        self.decision_tree = None  # Дерево решений по фильтрам (через expert_system)
+        self.decision_tree = None
         self.brands = []
         self.body_types = []
-        self.current_results = []  # Сохраняем текущие результаты для tooltip
+        self.current_results = []
         
         self.init_ui()
         self.init_database()
         
     def init_ui(self):
         """Инициализация интерфейса"""
-        self.setWindowTitle("Экспертная система выбора автомобиля")
+        self.setWindowTitle("Экспертная система по выбору легкового автомобиля")
         self.setGeometry(100, 100, 1000, 750)
         self.setMinimumSize(900, 700)
         
@@ -44,30 +40,15 @@ class CarSelectionApp(QMainWindow):
         main_layout.setContentsMargins(20, 20, 20, 20)
         
         # Заголовок
-        title_label = QLabel("🚗 Подбор автомобиля по характеристикам")
+        title_label = QLabel("🚗 Подбор автомобиля")
         title_font = QFont("Arial", 20, QFont.Weight.Bold)
         title_label.setFont(title_font)
         title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         title_label.setStyleSheet("color: #2c3e50; margin-bottom: 10px;")
         main_layout.addWidget(title_label)
         
-        # Инструкция
-        instruction_label = QLabel("Выберите одну или несколько характеристик для поиска:")
-        instruction_font = QFont("Arial", 16)
-        instruction_label.setFont(instruction_font)
-        instruction_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        instruction_label.setStyleSheet("color: #7f8c8d; margin-bottom: 5px;")
-        main_layout.addWidget(instruction_label)
-        
-        # Подсказка о порядке фильтров (дерево решений) — заполняется после init_database
-        self.tree_order_label = QLabel("")
-        self.tree_order_label.setFont(QFont("Arial", 10))
-        self.tree_order_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.tree_order_label.setStyleSheet("color: #95a5a6; margin-bottom: 8px;")
-        main_layout.addWidget(self.tree_order_label)
-        
-        # Фрейм для фильтров (порядок = дерево решений: body_type → price → brand → power)
-        filters_group = QGroupBox("Критерии поиска")
+        # Критерии — только выпадающие списки (порядок: тип кузова → цена → марка → мощность)
+        filters_group = QGroupBox("Критерии")
         filters_group.setFont(QFont("Arial", 12, QFont.Weight.Bold))
         filters_layout = QVBoxLayout()
         filters_layout.setSpacing(12)
@@ -126,8 +107,8 @@ class CarSelectionApp(QMainWindow):
         buttons_layout.addStretch()
         main_layout.addLayout(buttons_layout)
         
-        # Таблица результатов
-        results_label = QLabel("📊 Результаты поиска:")
+        # Таблица результатов (после прохода по дереву решений)
+        results_label = QLabel("📊 Результаты:")
         results_label.setFont(QFont("Arial", 14, QFont.Weight.Bold))
         results_label.setStyleSheet("color: #2c3e50; margin-top: 10px;")
         main_layout.addWidget(results_label)
@@ -150,14 +131,6 @@ class CarSelectionApp(QMainWindow):
         self.results_table.setAlternatingRowColors(False)
         self.results_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.results_table.setFont(QFont("Arial", 14))
-        
-        # Включаем отслеживание мыши для tooltip
-        self.results_table.setMouseTracking(True)
-        self.results_table.viewport().setMouseTracking(True)
-        
-        # Подключаем обработчик движения мыши
-        self.results_table.cellEntered.connect(self.show_car_tooltip)
-        
         self.results_table.setStyleSheet("""
             QTableWidget {
                 gridline-color: #bdc3c7;
@@ -222,184 +195,83 @@ class CarSelectionApp(QMainWindow):
             }
         """)
         
+    # Диапазоны для выпадающих списков (отображаемое название, min, max)
+    PRICE_OPTIONS = [
+        ("Любая", None, None),
+        ("до 1 млн", None, 1_000_000),
+        ("1 – 2 млн", 1_000_000, 2_000_000),
+        ("2 – 3 млн", 2_000_000, 3_000_000),
+        ("3 – 5 млн", 3_000_000, 5_000_000),
+        ("5 – 10 млн", 5_000_000, 10_000_000),
+        ("10+ млн", 10_000_000, None),
+    ]
+    POWER_OPTIONS = [
+        ("Любая", None, None),
+        ("до 100 л.с.", None, 100),
+        ("100 – 150 л.с.", 100, 150),
+        ("150 – 200 л.с.", 150, 200),
+        ("200 – 300 л.с.", 200, 300),
+        ("300+ л.с.", 300, None),
+    ]
+
     def create_filters(self, layout):
-        """Создание элементов фильтров в порядке дерева решений: тип кузова → цена → марка → мощность."""
-        # --- Шаг 1: Тип кузова (узел body_type) ---
-        step1_label = QLabel("Тип кузова")
-        step1_label.setFont(QFont("Arial", 10, QFont.Weight.Bold))
-        step1_label.setStyleSheet("color: #2980b9; margin-top: 4px;")
-        layout.addWidget(step1_label)
-        body_layout = QHBoxLayout()
-        body_label = QLabel("Тип кузова:")
-        body_label.setMinimumWidth(150)
-        body_label.setFont(QFont("Arial", 11))
+        """Четыре выпадающих списка по критериям (порядок дерева: тип кузова → цена → марка → мощность)."""
+        def add_row(label_text, combo):
+            row = QHBoxLayout()
+            lbl = QLabel(label_text + ":")
+            lbl.setMinimumWidth(120)
+            lbl.setFont(QFont("Arial", 11))
+            combo.setFont(QFont("Arial", 11))
+            row.addWidget(lbl)
+            row.addWidget(combo, 1)
+            layout.addLayout(row)
+
         self.body_type_combo = QComboBox()
-        self.body_type_combo.setFont(QFont("Arial", 11))
-        self.body_type_combo.setEnabled(False)
-        self.body_type_check = QCheckBox("Использовать")
-        self.body_type_check.setFont(QFont("Arial", 10))
-        self.body_type_check.toggled.connect(lambda checked: self.toggle_widget(self.body_type_combo, checked))
-        body_layout.addWidget(body_label)
-        body_layout.addWidget(self.body_type_combo, 1)
-        body_layout.addWidget(self.body_type_check)
-        layout.addLayout(body_layout)
-        
-        # --- Шаг 2: Цена (узел price) ---
-        step2_label = QLabel("Цена")
-        step2_label.setFont(QFont("Arial", 10, QFont.Weight.Bold))
-        step2_label.setStyleSheet("color: #2980b9; margin-top: 8px;")
-        layout.addWidget(step2_label)
-        min_price_layout = QHBoxLayout()
-        min_price_label = QLabel("Мин. цена (руб.):")
-        min_price_label.setMinimumWidth(150)
-        min_price_label.setFont(QFont("Arial", 11))
-        self.min_price_edit = QLineEdit()
-        self.min_price_edit.setFont(QFont("Arial", 11))
-        self.min_price_edit.setPlaceholderText("Введите минимальную цену")
-        self.min_price_edit.setEnabled(False)
-        self.min_price_check = QCheckBox("Использовать")
-        self.min_price_check.setFont(QFont("Arial", 10))
-        self.min_price_check.toggled.connect(lambda checked: self.toggle_widget(self.min_price_edit, checked))
-        min_price_layout.addWidget(min_price_label)
-        min_price_layout.addWidget(self.min_price_edit, 1)
-        min_price_layout.addWidget(self.min_price_check)
-        layout.addLayout(min_price_layout)
-        max_price_layout = QHBoxLayout()
-        max_price_label = QLabel("Макс. цена (руб.):")
-        max_price_label.setMinimumWidth(150)
-        max_price_label.setFont(QFont("Arial", 11))
-        self.max_price_edit = QLineEdit()
-        self.max_price_edit.setFont(QFont("Arial", 11))
-        self.max_price_edit.setPlaceholderText("Введите максимальную цену")
-        self.max_price_edit.setEnabled(False)
-        self.max_price_check = QCheckBox("Использовать")
-        self.max_price_check.setFont(QFont("Arial", 10))
-        self.max_price_check.toggled.connect(lambda checked: self.toggle_widget(self.max_price_edit, checked))
-        max_price_layout.addWidget(max_price_label)
-        max_price_layout.addWidget(self.max_price_edit, 1)
-        max_price_layout.addWidget(self.max_price_check)
-        layout.addLayout(max_price_layout)
-        
-        # --- Шаг 3: Марка (узел brand) ---
-        step3_label = QLabel("Марка")
-        step3_label.setFont(QFont("Arial", 10, QFont.Weight.Bold))
-        step3_label.setStyleSheet("color: #2980b9; margin-top: 8px;")
-        layout.addWidget(step3_label)
-        brand_layout = QHBoxLayout()
-        brand_label = QLabel("Марка:")
-        brand_label.setMinimumWidth(150)
-        brand_label.setFont(QFont("Arial", 11))
+        add_row("Тип кузова", self.body_type_combo)
+
+        self.price_combo = QComboBox()
+        for name, min_p, max_p in self.PRICE_OPTIONS:
+            self.price_combo.addItem(name, (min_p, max_p))
+        add_row("Цена", self.price_combo)
+
         self.brand_combo = QComboBox()
-        self.brand_combo.setFont(QFont("Arial", 11))
-        self.brand_combo.setEnabled(False)
-        self.brand_check = QCheckBox("Использовать")
-        self.brand_check.setFont(QFont("Arial", 10))
-        self.brand_check.toggled.connect(lambda checked: self.toggle_widget(self.brand_combo, checked))
-        brand_layout.addWidget(brand_label)
-        brand_layout.addWidget(self.brand_combo, 1)
-        brand_layout.addWidget(self.brand_check)
-        layout.addLayout(brand_layout)
-        
-        # --- Шаг 4: Мощность (узел power) ---
-        step4_label = QLabel("Мощность")
-        step4_label.setFont(QFont("Arial", 10, QFont.Weight.Bold))
-        step4_label.setStyleSheet("color: #2980b9; margin-top: 8px;")
-        layout.addWidget(step4_label)
-        min_power_layout = QHBoxLayout()
-        min_power_label = QLabel("Мин. мощность (л.с.):")
-        min_power_label.setMinimumWidth(150)
-        min_power_label.setFont(QFont("Arial", 11))
-        self.min_power_edit = QLineEdit()
-        self.min_power_edit.setFont(QFont("Arial", 11))
-        self.min_power_edit.setPlaceholderText("Введите минимальную мощность")
-        self.min_power_edit.setEnabled(False)
-        self.min_power_check = QCheckBox("Использовать")
-        self.min_power_check.setFont(QFont("Arial", 10))
-        self.min_power_check.toggled.connect(lambda checked: self.toggle_widget(self.min_power_edit, checked))
-        min_power_layout.addWidget(min_power_label)
-        min_power_layout.addWidget(self.min_power_edit, 1)
-        min_power_layout.addWidget(self.min_power_check)
-        layout.addLayout(min_power_layout)
-        max_power_layout = QHBoxLayout()
-        max_power_label = QLabel("Макс. мощность (л.с.):")
-        max_power_label.setMinimumWidth(150)
-        max_power_label.setFont(QFont("Arial", 11))
-        self.max_power_edit = QLineEdit()
-        self.max_power_edit.setFont(QFont("Arial", 11))
-        self.max_power_edit.setPlaceholderText("Введите максимальную мощность")
-        self.max_power_edit.setEnabled(False)
-        self.max_power_check = QCheckBox("Использовать")
-        self.max_power_check.setFont(QFont("Arial", 10))
-        self.max_power_check.toggled.connect(lambda checked: self.toggle_widget(self.max_power_edit, checked))
-        max_power_layout.addWidget(max_power_label)
-        max_power_layout.addWidget(self.max_power_edit, 1)
-        max_power_layout.addWidget(self.max_power_check)
-        layout.addLayout(max_power_layout)
-        
-    def toggle_widget(self, widget, enabled):
-        """Включение/выключение виджета"""
-        widget.setEnabled(enabled)
-        if isinstance(widget, QLineEdit) and not enabled:
-            widget.clear()
-        elif isinstance(widget, QComboBox) and not enabled:
-            widget.setCurrentIndex(0)
-            
+        add_row("Марка", self.brand_combo)
+
+        self.power_combo = QComboBox()
+        for name, min_p, max_p in self.POWER_OPTIONS:
+            self.power_combo.addItem(name, (min_p, max_p))
+        add_row("Мощность", self.power_combo)
+
     def clear_filters(self):
-        """Очистить все фильтры"""
-        self.brand_check.setChecked(False)
-        self.body_type_check.setChecked(False)
-        self.min_price_check.setChecked(False)
-        self.max_price_check.setChecked(False)
-        self.min_power_check.setChecked(False)
-        self.max_power_check.setChecked(False)
-        
+        """Сброс выбора во всех выпадающих списках."""
+        self.body_type_combo.setCurrentIndex(0)
+        self.price_combo.setCurrentIndex(0)
+        self.brand_combo.setCurrentIndex(0)
+        self.power_combo.setCurrentIndex(0)
         self.results_table.setRowCount(0)
-        self.status_bar.showMessage("Фильтры очищены")
+        self.status_bar.showMessage("Критерии сброшены")
         
     def init_database(self):
-        """Инициализация базы данных"""
+        """Инициализация БД и дерева решений."""
         try:
-            # SQLite - просто создаем экземпляр, путь к базе определяется автоматически
             self.db = Database()
-            self.system = ExpertSystem(self.db)
-            self.decision_tree = self.system.decision_tree
-            
-            # Отображаем порядок фильтров дерева решений
-            _filter_names = {
-                "body_type": "тип кузова",
-                "price": "цена",
-                "brand": "марка",
-                "power": "мощность",
-            }
-            order = self.decision_tree.get_filter_order()
-            order_ru = " → ".join(_filter_names.get(name, name) for name in order)
-            self.tree_order_label.setText(f"Дерево решений: порядок фильтров — {order_ru}")
-            
-            # Загружаем списки для фильтров
+            self.decision_tree = CarDecisionTree()
             self.brands = self.db.get_unique_brands()
             self.body_types = self.db.get_unique_body_types()
-            
-            # Заполняем комбобоксы
-            self.brand_combo.addItem("")
-            self.brand_combo.addItems(self.brands)
-            self.body_type_combo.addItem("")
+            self.body_type_combo.addItem("Любой")
             self.body_type_combo.addItems(self.body_types)
+            self.brand_combo.addItem("Любая")
+            self.brand_combo.addItems(self.brands)
             
-            # Проверяем количество записей через SQLAlchemy
             from sqlalchemy import func
             from database import Car
             try:
                 count = self.db.session.query(func.count(Car.id)).scalar()
             except Exception:
-                # Если не удалось получить через SQLAlchemy, используем простой запрос
-                count = len(self.db.get_cars({}))
-            
-            if count > 0:
-                status_msg = f"База данных подключена. В базе: {count} автомобилей."
-            else:
-                status_msg = "База данных подключена. База пуста."
-                
-            self.status_bar.showMessage(status_msg)
+                count = len(self.db.get_all_cars())
+            self.status_bar.showMessage(
+                f"БД подключена. Автомобилей: {count}. Подбор по критериям."
+            )
             
         except Exception as e:
             error_msg = str(e)
@@ -412,133 +284,72 @@ class CarSelectionApp(QMainWindow):
             self.status_bar.showMessage("Ошибка подключения к базе данных")
             
     def get_recommendations(self):
-        """Получение и отображение рекомендаций"""
-        if not self.db or not self.system:
-            QMessageBox.critical(self, "Ошибка", "База данных не инициализирована.")
+        """Подбор по выбранным критериям из выпадающих списков (дерево решений)."""
+        if not self.db or not self.decision_tree:
+            QMessageBox.critical(self, "Ошибка", "БД или дерево решений не инициализированы.")
             return
-            
         try:
-            # Формируем критерии поиска
             criteria = {}
+            body_type = self.body_type_combo.currentText()
+            if body_type and body_type != "Любой":
+                criteria["body_type"] = body_type
+            price_data = self.price_combo.currentData()
+            if price_data and (price_data[0] is not None or price_data[1] is not None):
+                if price_data[0] is not None:
+                    criteria["min_price"] = price_data[0]
+                if price_data[1] is not None:
+                    criteria["max_price"] = price_data[1]
+            brand = self.brand_combo.currentText()
+            if brand and brand != "Любая":
+                criteria["brand"] = brand
+            power_data = self.power_combo.currentData()
+            if power_data and (power_data[0] is not None or power_data[1] is not None):
+                if power_data[0] is not None:
+                    criteria["min_power"] = power_data[0]
+                if power_data[1] is not None:
+                    criteria["max_power"] = power_data[1]
             
-            # Марка
-            if self.brand_check.isChecked():
-                brand = self.brand_combo.currentText()
-                if brand:
-                    criteria['brand'] = brand
+            # Логика от decision_tree: все авто → дерево решений → отфильтрованный список
+            all_cars = self.db.get_all_cars()
+            filtered = self.decision_tree.evaluate(all_cars, criteria)
+            results = sorted(filtered, key=lambda x: x["price"])
+            results = [
+                {
+                    "brand": c["brand"],
+                    "model": c["model"],
+                    "body_type": c["body_type"],
+                    "price": c["price"],
+                    "power": c["power"],
+                    "description": c.get("description", ""),
+                }
+                for c in results
+            ]
             
-            # Тип кузова
-            if self.body_type_check.isChecked():
-                body_type = self.body_type_combo.currentText()
-                if body_type:
-                    criteria['body_type'] = body_type
-            
-            # Минимальная цена
-            if self.min_price_check.isChecked():
-                min_price_str = self.min_price_edit.text().strip()
-                if min_price_str:
-                    criteria['min_price'] = int(min_price_str)
-            
-            # Максимальная цена
-            if self.max_price_check.isChecked():
-                max_price_str = self.max_price_edit.text().strip()
-                if max_price_str:
-                    criteria['max_price'] = int(max_price_str)
-            
-            # Минимальная мощность
-            if self.min_power_check.isChecked():
-                min_power_str = self.min_power_edit.text().strip()
-                if min_power_str:
-                    criteria['min_power'] = int(min_power_str)
-            
-            # Максимальная мощность
-            if self.max_power_check.isChecked():
-                max_power_str = self.max_power_edit.text().strip()
-                if max_power_str:
-                    criteria['max_power'] = int(max_power_str)
-            
-            # Проверка, что хотя бы один критерий выбран
-            if not criteria:
-                QMessageBox.warning(self, "Предупреждение", 
-                                  "Выберите хотя бы одну характеристику для поиска!")
-                return
-            
-            # Валидация числовых значений
-            if 'min_price' in criteria and criteria['min_price'] < 0:
-                raise ValueError("Минимальная цена должна быть положительным числом")
-            if 'max_price' in criteria and criteria['max_price'] < 0:
-                raise ValueError("Максимальная цена должна быть положительным числом")
-            if 'min_power' in criteria and criteria['min_power'] < 0:
-                raise ValueError("Минимальная мощность должна быть положительным числом")
-            if 'max_power' in criteria and criteria['max_power'] < 0:
-                raise ValueError("Максимальная мощность должна быть положительным числом")
-            if 'min_price' in criteria and 'max_price' in criteria:
-                if criteria['min_price'] > criteria['max_price']:
-                    raise ValueError("Минимальная цена не может быть больше максимальной")
-            if 'min_power' in criteria and 'max_power' in criteria:
-                if criteria['min_power'] > criteria['max_power']:
-                    raise ValueError("Минимальная мощность не может быть больше максимальной")
-            
-            # Поиск через дерево решений (expert_system использует decision_tree)
-            results = self.system.recommend(criteria)
-            
-            # Сохраняем результаты для tooltip
-            self.current_results = results if isinstance(results, list) else []
-            
-            # Отображаем результаты в таблице
+            self.current_results = results
             self.results_table.setRowCount(0)
-            
-            if isinstance(results, str):
-                QMessageBox.information(self, "Результат", results)
-                self.status_bar.showMessage("Поиск выполнен")
+            if not results:
+                self.results_table.setRowCount(1)
+                no_item = QTableWidgetItem("Нет автомобилей по выбранным критериям")
+                no_item.setFlags(Qt.ItemFlag.NoItemFlags)
+                self.results_table.setItem(0, 0, no_item)
+                self.results_table.setSpan(0, 0, 1, 6)
+                self.status_bar.showMessage("Ничего не найдено")
                 self.current_results = []
             else:
-                if not results:
-                    self.results_table.setRowCount(1)
-                    no_results_item = QTableWidgetItem("Нет подходящих автомобилей по указанным критериям")
-                    no_results_item.setFlags(Qt.ItemFlag.NoItemFlags)
-                    self.results_table.setItem(0, 0, no_results_item)
-                    self.results_table.setSpan(0, 0, 1, 6)
-                    self.status_bar.showMessage("Автомобили не найдены")
-                    self.current_results = []
-                else:
-                    # Отображаем все результаты сразу
-                    self.results_table.setRowCount(len(results))
-                    for i, car in enumerate(results):
-                        # Номер
-                        num_item = QTableWidgetItem(str(i + 1))
-                        num_item.setToolTip(self.create_car_tooltip(car))
-                        self.results_table.setItem(i, 0, num_item)
-                        
-                        # Марка
-                        brand_item = QTableWidgetItem(car['brand'])
-                        brand_item.setToolTip(self.create_car_tooltip(car))
-                        self.results_table.setItem(i, 1, brand_item)
-                        
-                        # Модель
-                        model_item = QTableWidgetItem(car['model'])
-                        model_item.setToolTip(self.create_car_tooltip(car))
-                        self.results_table.setItem(i, 2, model_item)
-                        
-                        # Тип кузова
-                        body_item = QTableWidgetItem(car['body_type'])
-                        body_item.setToolTip(self.create_car_tooltip(car))
-                        self.results_table.setItem(i, 3, body_item)
-                        
-                        # Цена (форматированная)
-                        formatted_price = f"{car['price']:,}".replace(',', ' ')
-                        price_item = QTableWidgetItem(formatted_price)
-                        price_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-                        price_item.setToolTip(self.create_car_tooltip(car))
-                        self.results_table.setItem(i, 4, price_item)
-                        
-                        # Мощность
-                        power_item = QTableWidgetItem(str(car['power']))
-                        power_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-                        power_item.setToolTip(self.create_car_tooltip(car))
-                        self.results_table.setItem(i, 5, power_item)
-                    
-                    self.status_bar.showMessage(f"Найдено {len(results)} автомобилей. Наведите курсор на строку для подробной информации.")
+                self.results_table.setRowCount(len(results))
+                for i, car in enumerate(results):
+                    self.results_table.setItem(i, 0, QTableWidgetItem(str(i + 1)))
+                    self.results_table.setItem(i, 1, QTableWidgetItem(car["brand"]))
+                    self.results_table.setItem(i, 2, QTableWidgetItem(car["model"]))
+                    self.results_table.setItem(i, 3, QTableWidgetItem(car["body_type"]))
+                    formatted_price = f"{car['price']:,}".replace(",", " ")
+                    price_item = QTableWidgetItem(formatted_price)
+                    price_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+                    self.results_table.setItem(i, 4, price_item)
+                    power_item = QTableWidgetItem(str(car["power"]))
+                    power_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+                    self.results_table.setItem(i, 5, power_item)
+                self.status_bar.showMessage(f"Найдено {len(results)} автомобилей")
                     
         except ValueError as e:
             QMessageBox.critical(self, "Ошибка ввода", 
@@ -548,58 +359,6 @@ class CarSelectionApp(QMainWindow):
             QMessageBox.critical(self, "Ошибка", f"Произошла ошибка: {str(e)}")
             self.status_bar.showMessage("Ошибка при выполнении поиска")
     
-    def create_car_tooltip(self, car):
-        """Создание текста tooltip с подробной информацией об автомобиле"""
-        description = car.get('description', 'Описание отсутствует')
-        formatted_price = f"{car['price']:,}".replace(',', ' ')
-        
-        # Форматируем описание, разбивая длинные строки
-        max_line_length = 60
-        words = description.split()
-        lines = []
-        current_line = []
-        current_length = 0
-        
-        for word in words:
-            if current_length + len(word) + 1 <= max_line_length:
-                current_line.append(word)
-                current_length += len(word) + 1
-            else:
-                if current_line:
-                    lines.append(' '.join(current_line))
-                current_line = [word]
-                current_length = len(word)
-        if current_line:
-            lines.append(' '.join(current_line))
-        
-        formatted_description = '\n'.join(lines) if lines else description
-        # 2c3e50
-        # e9eef2
-        # bdc3c7
-        tooltip_text = f"""<div style='font-size: 11pt;'>
-<b style='font-size: 12pt; color: #edd70e;'>{car['brand']} {car['model']}</b>
-<hr style='margin: 5px 0; border: 1px solid #e9eef2;'>
-<b>Тип кузова:</b> {car['body_type']}<br>
-<b>Цена:</b> <span style='color: #27ae60;'>{formatted_price} руб.</span><br>
-<b>Мощность:</b> <span style='color: #3498db;'>{car['power']} л.с.</span>
-<hr style='margin: 5px 0; border: 1px solid #e9eef2;'>
-<b>Описание:</b><br>
-<span style='color: #f4fc97;'>{formatted_description}</span>
-</div>"""
-        return tooltip_text
-    
-    def show_car_tooltip(self, row, column):
-        """Показать tooltip при наведении на строку"""
-        if row < len(self.current_results):
-            car = self.current_results[row]
-            tooltip_text = self.create_car_tooltip(car)
-            
-            # Устанавливаем tooltip для всех ячеек в строке
-            for col in range(self.results_table.columnCount()):
-                item = self.results_table.item(row, col)
-                if item:
-                    item.setToolTip(tooltip_text)
-            
     def closeEvent(self, event):
         """Обработка закрытия окна"""
         if self.db:
