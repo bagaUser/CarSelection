@@ -241,6 +241,20 @@ class Database:
             self.session.rollback()
             print(f"Ошибка при заполнении базы данных: {e}")
 
+    def get_all_cars(self):
+        """
+        Получить все автомобили без фильтрации (для дерева решений).
+
+        Returns:
+            список словарей с данными автомобилей
+        """
+        try:
+            cars = self.session.query(Car).all()
+            return [car.to_dict() for car in cars]
+        except SQLAlchemyError as e:
+            print(f"Ошибка при получении автомобилей: {e}")
+            return []
+
     def get_cars(self, criteria):
         """
         Гибкий поиск автомобилей по опциональным критериям
